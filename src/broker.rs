@@ -11,17 +11,22 @@ pub struct Broker {
     child_counts: Mutex<HashMap<PathBuf, usize>>,
     /// Map: directory -> parent directory
     parent_map: Mutex<HashMap<PathBuf, PathBuf>>,
-    /// Channel sender for pushing work to workers
-    work_tx: Sender<PathBuf>,
+    /// Channel sender for pushing work to workers (Option so we can drop it)
+    work_tx: Mutex<Option<Sender<PathBuf>>>,
+    /// Total directories to process
+    total_dirs: usize,
+    /// Directories completed (atomic counter)
+    completed: std::sync::atomic::AtomicUsize,
 }
 
 impl Broker {
-    /// Create broker from DirectoryTree, returns (Broker, Receiver for workers)
-    pub fn new(tree: DirectoryTree) -> (Self, Receiver<PathBuf>) {
+    /// Create broker from DirectoryTree, returns (Broker, Sender to drop, Receiver for workers)
+    pub fn new(tree: DirectoryTree) -> (Self, Sender<PathBuf>, Receiver<PathBuf>) {
         let (tx, rx) = unbounded();
 
         let mut child_counts = HashMap::new();
         let mut parent_map = HashMap::new();
+        let total_dirs = tree.dirs.len();
 
         // Build parent map and initialize child counts
         for (parent, children) in &tree.children {
@@ -34,19 +39,32 @@ impl Broker {
         let broker = Self {
             child_counts: Mutex::new(child_counts),
             parent_map: Mutex::new(parent_map),
-            work_tx: tx,
+            work_tx: Mutex::new(Some(tx.clone())),
+            total_dirs,
+            completed: std::sync::atomic::AtomicUsize::new(0),
         };
 
         // Push all initial leaves to work queue
         for leaf in tree.leaves {
-            broker.work_tx.send(leaf).ok();
+            if let Some(ref tx) = *broker.work_tx.lock().unwrap() {
+                tx.send(leaf).ok();
+            }
         }
 
-        (broker, rx)
+        (broker, tx, rx)
     }
 
     /// Mark directory as deleted, update dependency graph, push newly-available parents
     pub fn mark_complete(&self, dir: PathBuf) {
+        // Increment completed counter
+        let completed = self.completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+
+        // Check if all work is done - if so, close the channel
+        if completed == self.total_dirs {
+            *self.work_tx.lock().unwrap() = None; // Drop sender to close channel
+            return;
+        }
+
         let parent = {
             let parent_map = self.parent_map.lock().unwrap();
             parent_map.get(&dir).cloned()
@@ -62,7 +80,11 @@ impl Broker {
                 if *count == 0 {
                     counts.remove(&parent_path);
                     drop(counts); // Release lock before sending
-                    self.work_tx.send(parent_path).ok();
+
+                    // Send work to channel
+                    if let Some(ref tx) = *self.work_tx.lock().unwrap() {
+                        tx.send(parent_path).ok();
+                    }
                 }
             }
         }
@@ -71,6 +93,16 @@ impl Broker {
     /// Get total pending directories (for monitoring)
     pub fn pending_count(&self) -> usize {
         self.child_counts.lock().unwrap().len()
+    }
+
+    /// Get number of completed directories
+    pub fn completed_count(&self) -> usize {
+        self.completed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Get total directories
+    pub fn total_dirs(&self) -> usize {
+        self.total_dirs
     }
 }
 
@@ -99,11 +131,13 @@ mod tests {
         children.insert(root.clone(), vec![a.clone(), b.clone()]);
         tree.children = children;
 
-        let (broker, rx) = Broker::new(tree);
+        let (broker, tx, rx) = Broker::new(tree);
 
         // Should immediately dispatch both leaves
         assert_eq!(rx.recv().unwrap(), a);
         assert_eq!(rx.recv().unwrap(), b);
+
+        drop(tx); // Drop sender so we can detect channel closure
 
         // Mark a complete
         broker.mark_complete(a);
@@ -136,7 +170,7 @@ mod tests {
         children.insert(b.clone(), vec![c.clone()]);
         tree.children = children;
 
-        let (broker, rx) = Broker::new(tree);
+        let (broker, _tx, rx) = Broker::new(tree);
 
         // Only leaf c dispatched initially
         assert_eq!(rx.recv().unwrap(), c);
@@ -168,7 +202,7 @@ mod tests {
         children.insert(root.clone(), vec![a.clone(), b.clone()]);
         tree.children = children;
 
-        let (broker, _rx) = Broker::new(tree);
+        let (broker, _tx, _rx) = Broker::new(tree);
 
         // Root has 2 children pending
         assert_eq!(broker.pending_count(), 1);

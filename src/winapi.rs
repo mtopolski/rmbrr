@@ -6,20 +6,27 @@ use std::path::Path;
 #[cfg(windows)]
 use windows::core::PCWSTR;
 #[cfg(windows)]
-use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_SHARING_VIOLATION, HANDLE};
+use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SHARING_VIOLATION};
 #[cfg(windows)]
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, DeleteFileW, RemoveDirectoryW, SetFileInformationByHandle,
-    FILE_ACCESS_FLAGS, FILE_ATTRIBUTE_NORMAL, FILE_DISPOSITION_INFO,
-    FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    FileDispositionInfo, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    DeleteFileW, RemoveDirectoryW,
+    SetFileAttributesW, FindFirstFileExW, FindNextFileW, FindClose,
+    FILE_ATTRIBUTE_NORMAL,
+    WIN32_FIND_DATAW, FILE_ATTRIBUTE_DIRECTORY,
+    FINDEX_INFO_LEVELS, FINDEX_SEARCH_OPS, FIND_FIRST_EX_FLAGS,
 };
 
 #[cfg(windows)]
 fn path_to_wide(path: &Path) -> Vec<u16> {
-    use std::os::windows::ffi::OsStrExt;
-    path.as_os_str()
-        .encode_wide()
+    let path_str = path.to_string_lossy();
+    let prefixed = if path.is_absolute() && !path_str.starts_with(r"\\?\") {
+        format!(r"\\?\{}", path.display())
+    } else {
+        path_str.to_string()
+    };
+
+    prefixed
+        .encode_utf16()
         .chain(std::iter::once(0))
         .collect()
 }
@@ -29,53 +36,50 @@ pub fn delete_file_fast(path: &Path) -> io::Result<()> {
     let wide_path = path_to_wide(path);
 
     unsafe {
-        // Try SetFileInformationByHandle approach for potential speed benefit
-        let handle = CreateFileW(
-            PCWSTR(wide_path.as_ptr()),
-            FILE_ACCESS_FLAGS(0x10000), // DELETE access
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            None,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
-            HANDLE::default(),
-        );
+        // Try delete first
+        let result = DeleteFileW(PCWSTR(wide_path.as_ptr()));
 
-        if let Ok(h) = handle {
-            let mut disposition = FILE_DISPOSITION_INFO {
-                DeleteFile: true.into(),
-            };
-
-            let result = SetFileInformationByHandle(
-                h,
-                FileDispositionInfo,
-                &mut disposition as *mut _ as *mut _,
-                std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
-            );
-
-            CloseHandle(h).ok();
-
-            if result.is_ok() {
-                return Ok(());
-            }
-        }
-
-        // Fallback to DeleteFileW
-        DeleteFileW(PCWSTR(wide_path.as_ptr()))
-            .map_err(|e| {
-                let code = e.code().0 as u32;
-                match code {
-                    x if x == ERROR_FILE_NOT_FOUND.0 => {
-                        io::Error::new(io::ErrorKind::NotFound, "File not found")
-                    }
-                    x if x == ERROR_ACCESS_DENIED.0 => {
-                        io::Error::new(io::ErrorKind::PermissionDenied, "Access denied")
-                    }
-                    x if x == ERROR_SHARING_VIOLATION.0 => {
-                        io::Error::new(io::ErrorKind::PermissionDenied, "File in use")
-                    }
-                    _ => io::Error::from_raw_os_error(code as i32),
+        // If access denied, try clearing read-only flag and retry
+        if let Err(e) = result {
+            let code = (e.code().0 & 0xFFFF) as u32;
+            if code == ERROR_ACCESS_DENIED.0 {
+                // Clear read-only flag and retry
+                if SetFileAttributesW(PCWSTR(wide_path.as_ptr()), FILE_ATTRIBUTE_NORMAL).is_ok() {
+                    return DeleteFileW(PCWSTR(wide_path.as_ptr()))
+                        .map_err(|e| {
+                            let code = (e.code().0 & 0xFFFF) as u32;
+                            match code {
+                                x if x == ERROR_FILE_NOT_FOUND.0 || x == ERROR_PATH_NOT_FOUND.0 => {
+                                    io::Error::new(io::ErrorKind::NotFound, "File not found")
+                                }
+                                x if x == ERROR_ACCESS_DENIED.0 => {
+                                    io::Error::new(io::ErrorKind::PermissionDenied, "Access denied")
+                                }
+                                x if x == ERROR_SHARING_VIOLATION.0 => {
+                                    io::Error::new(io::ErrorKind::PermissionDenied, "File in use")
+                                }
+                                _ => io::Error::from_raw_os_error(code as i32),
+                            }
+                        });
                 }
-            })
+            }
+
+            // Map other errors
+            match code {
+                x if x == ERROR_FILE_NOT_FOUND.0 || x == ERROR_PATH_NOT_FOUND.0 => {
+                    Err(io::Error::new(io::ErrorKind::NotFound, "File not found"))
+                }
+                x if x == ERROR_ACCESS_DENIED.0 => {
+                    Err(io::Error::new(io::ErrorKind::PermissionDenied, "Access denied"))
+                }
+                x if x == ERROR_SHARING_VIOLATION.0 => {
+                    Err(io::Error::new(io::ErrorKind::PermissionDenied, "File in use"))
+                }
+                _ => Err(io::Error::from_raw_os_error(code as i32)),
+            }
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -86,9 +90,9 @@ pub fn remove_dir_fast(path: &Path) -> io::Result<()> {
     unsafe {
         RemoveDirectoryW(PCWSTR(wide_path.as_ptr()))
             .map_err(|e| {
-                let code = e.code().0 as u32;
+                let code = (e.code().0 & 0xFFFF) as u32;
                 match code {
-                    x if x == ERROR_FILE_NOT_FOUND.0 => {
+                    x if x == ERROR_FILE_NOT_FOUND.0 || x == ERROR_PATH_NOT_FOUND.0 => {
                         io::Error::new(io::ErrorKind::NotFound, "Directory not found")
                     }
                     x if x == ERROR_ACCESS_DENIED.0 => {
@@ -100,15 +104,54 @@ pub fn remove_dir_fast(path: &Path) -> io::Result<()> {
     }
 }
 
-#[cfg(not(windows))]
-pub fn delete_file_fast(path: &Path) -> io::Result<()> {
-    std::fs::remove_file(path)
+
+/// Enumerate files in a directory using direct Windows API
+#[cfg(windows)]
+pub fn enumerate_files_fast<F>(dir: &Path, mut callback: F) -> io::Result<()>
+where
+    F: FnMut(&Path, bool) -> io::Result<()>,
+{
+    let search_path = dir.join("*");
+    let wide_path = path_to_wide(&search_path);
+
+    unsafe {
+        let mut find_data: WIN32_FIND_DATAW = std::mem::zeroed();
+        let handle = match FindFirstFileExW(
+            PCWSTR(wide_path.as_ptr()),
+            FINDEX_INFO_LEVELS(1),
+            &mut find_data as *mut _ as *mut _,
+            FINDEX_SEARCH_OPS(0),
+            None,
+            FIND_FIRST_EX_FLAGS(0),
+        ) {
+            Ok(h) => h,
+            Err(_) => return Err(io::Error::last_os_error()),
+        };
+
+        loop {
+            // Convert filename from wide string
+            let name_len = find_data.cFileName.iter().position(|&c| c == 0).unwrap_or(find_data.cFileName.len());
+            let filename = String::from_utf16_lossy(&find_data.cFileName[..name_len]);
+
+            // Skip . and ..
+            if filename != "." && filename != ".." {
+                let is_dir = (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0) != 0;
+                let full_path = dir.join(&filename);
+                callback(&full_path, is_dir)?;
+            }
+
+            // Get next file
+            if FindNextFileW(handle, &mut find_data).is_err() {
+                break;
+            }
+        }
+
+        let _ = FindClose(handle);
+    }
+
+    Ok(())
 }
 
-#[cfg(not(windows))]
-pub fn remove_dir_fast(path: &Path) -> io::Result<()> {
-    std::fs::remove_dir(path)
-}
 
 #[cfg(test)]
 mod tests {

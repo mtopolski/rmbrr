@@ -1,7 +1,6 @@
 // Directory tree discovery and dependency graph construction
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +12,8 @@ pub struct DirectoryTree {
     pub children: HashMap<PathBuf, Vec<PathBuf>>,
     /// Directories with no subdirectories (initial leaves)
     pub leaves: Vec<PathBuf>,
+    /// Total number of files in the tree
+    pub file_count: usize,
 }
 
 impl DirectoryTree {
@@ -21,6 +22,7 @@ impl DirectoryTree {
             dirs: Vec::new(),
             children: HashMap::new(),
             leaves: Vec::new(),
+            file_count: 0,
         }
     }
 }
@@ -29,9 +31,10 @@ pub fn discover_tree(root: &Path) -> io::Result<DirectoryTree> {
     let mut tree = DirectoryTree::new();
     let mut all_dirs = HashSet::new();
     let mut has_children = HashSet::new();
+    let mut file_count = 0;
 
     // Recursive scan
-    scan_recursive(root, &mut all_dirs, &mut tree.children, &mut has_children)?;
+    scan_recursive(root, &mut all_dirs, &mut tree.children, &mut has_children, &mut file_count)?;
 
     // Convert to sorted vec
     tree.dirs = all_dirs.iter().cloned().collect();
@@ -44,6 +47,8 @@ pub fn discover_tree(root: &Path) -> io::Result<DirectoryTree> {
         }
     }
 
+    tree.file_count = file_count;
+
     Ok(tree)
 }
 
@@ -52,41 +57,31 @@ fn scan_recursive(
     all_dirs: &mut HashSet<PathBuf>,
     children_map: &mut HashMap<PathBuf, Vec<PathBuf>>,
     has_children: &mut HashSet<PathBuf>,
+    file_count: &mut usize,
 ) -> io::Result<()> {
     all_dirs.insert(dir.to_path_buf());
 
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(e) => {
-            // Skip directories we can't read (permissions, etc.)
-            eprintln!("Warning: Cannot read {}: {}", dir.display(), e);
-            return Ok(());
-        }
-    };
-
     let mut child_dirs = Vec::new();
 
-    for entry in entries {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        let path = entry.path();
-
-        let is_dir = match entry.file_type() {
-            Ok(ft) => ft.is_dir(),
-            Err(_) => continue,
-        };
-
+    if let Err(e) = crate::winapi::enumerate_files_fast(dir, |path, is_dir| {
         if is_dir {
-            child_dirs.push(path.clone());
-            scan_recursive(&path, all_dirs, children_map, has_children)?;
+            child_dirs.push(path.to_path_buf());
+        } else {
+            *file_count += 1;
         }
+        Ok(())
+    }) {
+        eprintln!("Warning: Cannot read {}: {}", dir.display(), e);
+        return Ok(());
     }
 
     if !child_dirs.is_empty() {
         has_children.insert(dir.to_path_buf());
+
+        for child in &child_dirs {
+            scan_recursive(child, all_dirs, children_map, has_children, file_count)?;
+        }
+
         children_map.insert(dir.to_path_buf(), child_dirs);
     }
 

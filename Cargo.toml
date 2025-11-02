@@ -2,9 +2,12 @@
 name = "win-rmdir-fast"
 version = "0.1.0"
 edition = "2021"
-authors = ["win-rmdir-fast contributors"]
+authors = ["Matthew Topolski"]
 description = "Hyper-optimized Windows directory deletion tool"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/mtopolski/win-rmdir-fast"
+keywords = ["windows", "filesystem", "delete", "parallel", "performance"]
+categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
