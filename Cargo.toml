@@ -1,0 +1,31 @@
+[package]
+name = "rmbrr"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matthew Topolski"]
+description = "Fast parallel directory deletion with cross-platform support"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mtopolski/rmbrr"
+homepage = "https://github.com/mtopolski/rmbrr"
+readme = "README.md"
+keywords = ["filesystem", "delete", "parallel", "performance", "cross-platform"]
+categories = ["command-line-utilities", "filesystem"]
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+crossbeam-channel = "0.5"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Wdk_Storage_FileSystem",
+] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = 'abort'
+strip = true

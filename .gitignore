@@ -1,0 +1,27 @@
+# Rust build artifacts
+debug/
+target/
+**/*.rs.bk
+*.pdb
+
+# Node.js
+node_modules/
+package-lock.json
+
+# Benchmark outputs
+bench/node_modules/
+bench/package-lock.json
+bench/benchmark_results*.txt
+bench/*_test/
+bench/test_*/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

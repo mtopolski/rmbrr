@@ -1,0 +1,42 @@
+{
+  "name": "rmbrr",
+  "version": "0.1.0",
+  "description": "Fast parallel directory deletion with cross-platform support",
+  "bin": {
+    "rmbrr": "./bin/rmbrr.js"
+  },
+  "scripts": {
+    "postinstall": "node ./scripts/install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mtopolski/rmbrr.git"
+  },
+  "keywords": [
+    "rmdir",
+    "delete",
+    "directory",
+    "parallel",
+    "fast",
+    "rimraf",
+    "performance"
+  ],
+  "author": "Matthew Topolski",
+  "license": "(MIT OR Apache-2.0)",
+  "homepage": "https://github.com/mtopolski/rmbrr",
+  "bugs": {
+    "url": "https://github.com/mtopolski/rmbrr/issues"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=14"
+  }
+}
