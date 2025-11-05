@@ -60,7 +60,7 @@ unsafe fn posix_delete_file(wide_path: &[u16]) -> io::Result<()> {
         FILE_FLAG_OPEN_REPARSE_POINT,
         HANDLE::default(),
     )
-    .map_err(|e| io::Error::from_raw_os_error((e.code().0 & 0xFFFF) as i32))?;
+    .map_err(|e| io::Error::from_raw_os_error(e.code().0 & 0xFFFF))?;
 
     let mut info = FILE_DISPOSITION_INFORMATION_EX {
         Flags: FILE_DISPOSITION_INFORMATION_EX_FLAGS(
@@ -96,7 +96,7 @@ unsafe fn posix_delete_dir(wide_path: &[u16]) -> io::Result<()> {
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
         HANDLE::default(),
     )
-    .map_err(|e| io::Error::from_raw_os_error((e.code().0 & 0xFFFF) as i32))?;
+    .map_err(|e| io::Error::from_raw_os_error(e.code().0 & 0xFFFF))?;
 
     let mut info = FILE_DISPOSITION_INFORMATION_EX {
         Flags: FILE_DISPOSITION_INFORMATION_EX_FLAGS(
