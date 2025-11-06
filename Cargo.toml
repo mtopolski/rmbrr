@@ -1,6 +1,6 @@
 [package]
 name = "rmbrr"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 authors = ["Matthew Topolski"]
 description = "Fast parallel directory deletion with cross-platform support"
