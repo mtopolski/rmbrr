@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.4] - 2025-01-05
+
+### Fixed
+- Growing pains with publishing to 3 targets
+
 ## [0.1.1] - 2025-01-05
 
 ### Fixed
