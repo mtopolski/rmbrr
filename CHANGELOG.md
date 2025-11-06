@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.5] - 2025-01-05
+## [0.1.6] - 2025-01-05
 
 ### Fixed
 - Growing pains with publishing to 3 targets
