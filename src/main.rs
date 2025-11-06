@@ -36,11 +36,7 @@ struct Args {
     #[arg(short = 'n', long)]
     dry_run: bool,
 
-    /// Silent mode - disable progress output for maximum performance
-    #[arg(short = 's', long, alias = "no-progress")]
-    silent: bool,
-
-    /// Verbose error reporting - print all errors as they occur
+    /// Show progress and completion messages
     #[arg(short = 'v', long)]
     verbose: bool,
 
@@ -76,7 +72,7 @@ fn run(args: Args) -> Result<(), Error> {
     let mut failed_paths = Vec::new();
 
     for (i, path) in args.paths.iter().enumerate() {
-        if args.paths.len() > 1 && !args.silent {
+        if args.paths.len() > 1 && args.verbose {
             println!(
                 "\n[{}/{}] Processing: {}",
                 i + 1,
@@ -99,7 +95,7 @@ fn run(args: Args) -> Result<(), Error> {
         }
     }
 
-    if args.paths.len() > 1 && !args.silent {
+    if args.paths.len() > 1 && args.verbose {
         print_summary(&total_stats, &all_failures, &failed_paths, &args);
     }
 
@@ -213,7 +209,7 @@ fn process_single_path(path: &Path, args: &Args) -> Result<DeletionStats, Error>
                     path: path.to_path_buf(),
                     reason: "system directory cannot be deleted".to_string(),
                 });
-            } else if !args.silent {
+            } else if args.verbose {
                 eprintln!("\n⚠️  WARNING: Deleting dangerous path with --force");
                 eprintln!("   {}", reason);
                 eprintln!();
@@ -221,7 +217,7 @@ fn process_single_path(path: &Path, args: &Args) -> Result<DeletionStats, Error>
         }
     }
 
-    if args.dry_run && !args.silent {
+    if args.dry_run && args.verbose {
         println!("DRY RUN MODE - no files will be deleted");
     }
 
@@ -231,7 +227,7 @@ fn process_single_path(path: &Path, args: &Args) -> Result<DeletionStats, Error>
             .unwrap_or(4)
     });
 
-    if !args.silent {
+    if args.verbose {
         println!("Scanning directory tree: {}", path.display());
     }
     let start = Instant::now();
@@ -242,7 +238,7 @@ fn process_single_path(path: &Path, args: &Args) -> Result<DeletionStats, Error>
     let dir_count = tree.dirs.len();
     let file_count = tree.file_count;
 
-    if !args.silent {
+    if args.verbose {
         println!(
             "Found {} directories ({} initial leaves), {} files in {:.2?}",
             dir_count,
@@ -277,7 +273,7 @@ fn process_single_path(path: &Path, args: &Args) -> Result<DeletionStats, Error>
     }
 
     if args.dry_run {
-        if !args.silent {
+        if args.verbose {
             println!("\n{}", "=".repeat(60));
             println!("DRY RUN RESULTS");
             println!("{}", "=".repeat(60));
@@ -306,7 +302,7 @@ fn process_single_path(path: &Path, args: &Args) -> Result<DeletionStats, Error>
         ignore_errors: args.ignore_errors,
     };
 
-    if !args.silent {
+    if args.verbose {
         println!("Spawning {} worker threads...", worker_count);
     }
     let handles = worker::spawn_workers(
@@ -319,12 +315,12 @@ fn process_single_path(path: &Path, args: &Args) -> Result<DeletionStats, Error>
 
     drop(tx);
 
-    if !args.silent {
+    if args.verbose {
         println!("Deleting directories...");
     }
     let delete_start = Instant::now();
 
-    let progress_handle = if !args.silent {
+    let progress_handle = if args.verbose {
         let total = broker.total_dirs();
         let broker_clone = broker.clone();
         Some(std::thread::spawn(move || loop {
@@ -366,7 +362,9 @@ fn process_single_path(path: &Path, args: &Args) -> Result<DeletionStats, Error>
     };
 
     if failure_count == 0 {
-        println!("\nDeletion complete!");
+        if args.verbose {
+            println!("\nDeletion complete!");
+        }
         if args.stats {
             println!("\nStatistics:");
             println!("  Directories: {}", dir_count);
@@ -379,15 +377,17 @@ fn process_single_path(path: &Path, args: &Args) -> Result<DeletionStats, Error>
             println!("\nPerformance:");
             let items_per_sec = (dir_count + file_count) as f64 / total_time.as_secs_f64();
             println!("  Throughput:  {:.0} items/sec", items_per_sec);
-        } else if !args.silent {
+        } else if args.verbose {
             println!("  Scan time:   {:.2?}", scan_time);
             println!("  Delete time: {:.2?}", delete_time);
             println!("  Total time:  {:.2?}", total_time);
         }
         Ok(stats)
     } else {
-        println!("\nDeletion completed with errors!");
-        if !args.silent {
+        if args.verbose {
+            println!("\nDeletion completed with errors!");
+        }
+        if args.verbose {
             println!("  Scan time:   {:.2?}", scan_time);
             println!("  Delete time: {:.2?}", delete_time);
             println!("  Total time:  {:.2?}", total_time);

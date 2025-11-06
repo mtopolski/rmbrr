@@ -86,14 +86,14 @@ rmbrr -n path/to/directory
 # Ask for confirmation
 rmbrr --confirm path/to/directory
 
+# Show progress, completion, and timing
+rmbrr --verbose path/to/directory
+
 # Show detailed statistics
 rmbrr --stats path/to/directory
 
 # Specify thread count
 rmbrr --threads 8 path/to/directory
-
-# Silent mode (disable progress for maximum performance)
-rmbrr --silent path/to/directory
 ```
 
 ## How it works

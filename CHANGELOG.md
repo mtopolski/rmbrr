@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.9] - 2025-01-05
+
+### Changed
+- Default operation is silent
+
 ## [0.1.8] - 2025-01-05
 
 ### Fixed
