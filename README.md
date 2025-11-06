@@ -22,8 +22,8 @@ Benchmark on node_modules (28,268 files, 5,124 directories, 446 MB):
 | Method              | Time      | vs rmbrr |
 |---------------------|-----------|----------|
 | rmbrr               | 192ms     | 1.00x    |
+| rimraf              | 660ms     | 3.44x slower |
 | rm -rf              | 711ms     | 3.70x slower |
-| rimraf              | 1,662ms   | 8.65x slower |
 
 Test system: 16-core CPU, SSD. Default thread count (CPU cores).
 
